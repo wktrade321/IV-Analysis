@@ -47,10 +47,6 @@ chrome_options.add_argument('--start-maximized')
 
 load_dotenv('e.env')
 
-
-#earnings file
-#https://www.barchart.com/stocks/earnings-within-7-days?viewName=main&orderBy=nextEarningsDate&orderDir=asc
-
 # %%
 #initialize chromedriver function 
 def driver():
@@ -69,11 +65,22 @@ ndl.ApiConfig.api_key = os.environ['ndl_api_key']
 
 # %%
 def get_iv_from_straddle(straddle_price: float, underlying_price: float, dte: int or float=30):
+    """
+    #IV from straddle price - to be used when current IV data isn't avail
+    """
     res = (125*straddle_price)/(underlying_price*np.sqrt(dte/360))
     return res
 
 # %%
-def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookback: int=1):
+def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookback: int=1, dte_threshold: int=20):
+    """
+    get the current ATM implied volatility for a symbol and target DTE from yfinance. 
+
+    :param dte: the target DTE of the options. The closest standard (monthly) expiration date to today+DTE is used
+    :param strike_count: how many of the closest ATM strikes are considered in the calc.
+    :param volume_lookback: number of trading days to look back for traded volume in the strikes being analyzed.
+                            if any of the strikes have no volume in the period, NaN is returned.
+    """
 
     td = (datetime.today() - BDay(volume_lookback)).date()
 
@@ -86,13 +93,15 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
     try:
         s = tk.info['currentPrice']
     except KeyError:
-        s = tk.fast_info['lastPrice']
+        tk.fast_info['lastPrice']
 
     thirdfris = pd.date_range(td,td+timedelta(365),freq='WOM-3FRI')
 
     if len(tk.options) > 0:
         ds = [d for d in tk.options if d in thirdfris]
         e = ds[pd.Series(abs((pd.to_datetime(ds) - datetime.today()).days - dte)).idxmin()]
+        if abs((pd.to_datetime(e) - datetime.today()).days - dte) > dte_threshold:
+            return np.nan
     else:
         return np.nan
 
@@ -128,6 +137,11 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
 # %%
 def get_hist_iv_data(tickers_avail: list, start_date: datetime or datetime.date=datetime.today()-timedelta(365), end_date: datetime or datetime.date=datetime.today(),
                 rows: int=None, write_to_file: bool=False):
+    """ 
+    pull historical daily IV data from the nasdaq data link series OPT for the provided list of tickers_avail. 
+    If 'rows' is specified, pulls the last <rows> data points.
+    If not, then pulls data from <start_date> to <end_date>
+    """
     iv_dict = {}
     if rows is None:
         for ticker in tqdm(tickers_avail):
