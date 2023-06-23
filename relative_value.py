@@ -93,7 +93,7 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
     try:
         s = tk.info['currentPrice']
     except KeyError:
-        tk.fast_info['lastPrice']
+        s = tk.fast_info['lastPrice']
 
     thirdfris = pd.date_range(td,td+timedelta(365),freq='WOM-3FRI')
 
