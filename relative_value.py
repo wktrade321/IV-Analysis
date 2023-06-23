@@ -246,7 +246,7 @@ def get_correlated_vrps(vrp_df, stockpx_df, corr_threshold: float, stockpx_thres
 
 # %%
 def get_current_iv_ratio_ranks(iv_ratio_df: pd.DataFrame, corr_df:pd.DataFrame, stockpx_df: pd.DataFrame,
-                         dte: int=30, strike_count: int=2, z_window: int=100, use_iv_df: bool=False, iv_df=None):
+                         dte: int=30, strike_count: int=2, volume_lookback: int=1, dte_threshold: int=20, z_window: int=100, use_iv_df: bool=False, iv_df=None):
 
 
 
@@ -258,7 +258,7 @@ def get_current_iv_ratio_ranks(iv_ratio_df: pd.DataFrame, corr_df:pd.DataFrame, 
     else:
         for ticker in tqdm(tickers):
             print(ticker)
-            current_iv_dict[ticker] = get_current_iv(ticker, dte=dte, strike_count=strike_count)
+            current_iv_dict[ticker] = get_current_iv(ticker, dte=dte, strike_count=strike_count, volume_lookback=volume_lookback, dte_threshold=dte_threshold)
             clear_output()
 
 
@@ -310,7 +310,7 @@ def get_current_iv_ratio_ranks(iv_ratio_df: pd.DataFrame, corr_df:pd.DataFrame, 
 
 # %%
 def get_current_vrp_ratio_ranks(vrp_ratio_df: pd.DataFrame, rv_df: pd.DataFrame, corr_df: pd.DataFrame, stockpx_df: pd.DataFrame,
-                         dte: int=30, strike_count: int=2, z_window: int=100, use_vrp_df: bool=False, vrp_df=None):
+                         dte: int=30, strike_count: int=2, volume_lookback: int=1, dte_threshold: int=20, z_window: int=100, use_vrp_df: bool=False, vrp_df=None):
 
 
 
@@ -322,7 +322,8 @@ def get_current_vrp_ratio_ranks(vrp_ratio_df: pd.DataFrame, rv_df: pd.DataFrame,
     else:
         for ticker in tqdm(tickers):
             print(ticker)
-            current_vrp_dict[ticker] = get_current_iv(ticker, dte=dte, strike_count=strike_count)*100/rv_df[ticker][-1]
+            current_vrp_dict[ticker] = get_current_iv(ticker, dte=dte, strike_count=strike_count, 
+                                                      volume_lookback=volume_lookback, dte_threshold=dte_threshold)*100/rv_df[ticker][-1]
             clear_output()
 
 
@@ -771,7 +772,7 @@ def update_iv_csvs(basepath: str, rows=None, start_date = datetime.today()-timed
 def update_and_plot_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: str, plot_vrp: bool=False, earnings_days_forward: int=7, earnings_days_back: int=7, rows: int=None, 
                             start_date=datetime.today()-timedelta(1), end_date=datetime.today(), 
                             corr_thresholds: tuple=(0.9,0.91,0.92,0.8,0.84,0.86), stockpx_threshold=2.0,  use_df=False, use_stockpx_corr=False, 
-                            strike_count=2, z_window=100, plots_n=100, etf_limit: int=50, plot_titles=('IV30', 'IV60', 'IV90', 'VRP30', 'VRP60', 'VRP90')):
+                            strike_count=2, volume_lookback: int=1, dte_threshold: int=20, z_window=100, plots_n=100, etf_limit: int=50, plot_titles=('IV30', 'IV60', 'IV90', 'VRP30', 'VRP60', 'VRP90')):
 
     #earnings file
     #https://www.barchart.com/stocks/earnings-within-7-days?viewName=main&orderBy=nextEarningsDate&orderDir=asc
@@ -819,14 +820,20 @@ def update_and_plot_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath:
         highvrpcorrs_90, VRP_ratios_90 = get_correlated_vrps(vrp_90, stockpx_df, corr_thresholds[5], stockpx_threshold,  
                                                             use_vrp_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers = vrpticks)
     
-    ivranks_30 = get_current_iv_ratio_ranks(IV_ratios_30, highcorrs_30, stockpx_df, dte=30, strike_count=strike_count, z_window=z_window, use_iv_df=use_df, iv_df=iv30_df)
-    ivranks_60 = get_current_iv_ratio_ranks(IV_ratios_60, highcorrs_60, stockpx_df, dte=60, strike_count=strike_count, z_window=z_window, use_iv_df=use_df, iv_df=iv60_df)
-    ivranks_90 = get_current_iv_ratio_ranks(IV_ratios_90, highcorrs_90, stockpx_df, dte=90, strike_count=strike_count, z_window=z_window, use_iv_df=use_df, iv_df=iv90_df)
+    ivranks_30 = get_current_iv_ratio_ranks(IV_ratios_30, highcorrs_30, stockpx_df, dte=30, strike_count=strike_count, 
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv30_df)
+    ivranks_60 = get_current_iv_ratio_ranks(IV_ratios_60, highcorrs_60, stockpx_df, dte=60, strike_count=strike_count, 
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv60_df)
+    ivranks_90 = get_current_iv_ratio_ranks(IV_ratios_90, highcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv90_df)
 
     if plot_vrp:
-        vrpranks_30 = get_current_vrp_ratio_ranks(VRP_ratios_30, rv_30, highvrpcorrs_30, stockpx_df, dte=30, strike_count=strike_count, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_30)
-        vrpranks_60 = get_current_vrp_ratio_ranks(VRP_ratios_60, rv_60, highvrpcorrs_60, stockpx_df, dte=60, strike_count=strike_count, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_60)
-        vrpranks_90 = get_current_vrp_ratio_ranks(VRP_ratios_90, rv_90, highvrpcorrs_90, stockpx_df, dte=90, strike_count=strike_count, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_90)
+        vrpranks_30 = get_current_vrp_ratio_ranks(VRP_ratios_30, rv_30, highvrpcorrs_30, stockpx_df, dte=30, strike_count=strike_count, 
+                                                  volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_30)
+        vrpranks_60 = get_current_vrp_ratio_ranks(VRP_ratios_60, rv_60, highvrpcorrs_60, stockpx_df, dte=60, strike_count=strike_count, 
+                                                  volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_60)
+        vrpranks_90 = get_current_vrp_ratio_ranks(VRP_ratios_90, rv_90, highvrpcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
+                                                  volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_90)
         
     plot_iv_ratios(ivranks_30, IV_ratios_30, iv30_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[0], use_df=use_df)
     plot_iv_ratios(ivranks_60, IV_ratios_60, iv60_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[1], use_df=use_df)
@@ -839,8 +846,8 @@ def update_and_plot_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath:
 
 # %%
 def plot_current_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: str, plot_vrp: bool=False, earnings_days_forward: int=7, earnings_days_back: int=7,
-                        corr_thresholds: tuple=(0.9,0.91,0.92,0.8,0.84,0.86), stockpx_threshold=2.0,  
-                        use_df=False, use_stockpx_corr=False, strike_count=2, z_window=100, plots_n=100, etf_limit: int=50, 
+                        corr_thresholds: tuple=(0.9,0.91,0.92,0.8,0.84,0.86), stockpx_threshold=2.0, use_df=False, use_stockpx_corr=False, 
+                        strike_count=2, volume_lookback: int=1, dte_threshold: int=20, z_window=100, plots_n=100, etf_limit: int=50, 
                         plot_titles=('IV30', 'IV60', 'IV90', 'VRP30', 'VRP60', 'VRP90')):
 
     #earnings file
@@ -887,14 +894,20 @@ def plot_current_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: st
                                                             use_vrp_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers = vrpticks)
         
     
-    ivranks_30 = get_current_iv_ratio_ranks(IV_ratios_30, highcorrs_30, stockpx_df, dte=30, strike_count=strike_count, z_window=z_window, use_iv_df=use_df, iv_df=iv30_df)
-    ivranks_60 = get_current_iv_ratio_ranks(IV_ratios_60, highcorrs_60, stockpx_df, dte=60, strike_count=strike_count, z_window=z_window, use_iv_df=use_df, iv_df=iv60_df)
-    ivranks_90 = get_current_iv_ratio_ranks(IV_ratios_90, highcorrs_90, stockpx_df, dte=90, strike_count=strike_count, z_window=z_window, use_iv_df=use_df, iv_df=iv90_df)
+    ivranks_30 = get_current_iv_ratio_ranks(IV_ratios_30, highcorrs_30, stockpx_df, dte=30, strike_count=strike_count, 
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv30_df)
+    ivranks_60 = get_current_iv_ratio_ranks(IV_ratios_60, highcorrs_60, stockpx_df, dte=60, strike_count=strike_count, 
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv60_df)
+    ivranks_90 = get_current_iv_ratio_ranks(IV_ratios_90, highcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv90_df)
     
     if plot_vrp:
-        vrpranks_30 = get_current_vrp_ratio_ranks(VRP_ratios_30, rv_30, highvrpcorrs_30, stockpx_df, dte=30, strike_count=strike_count, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_30)
-        vrpranks_60 = get_current_vrp_ratio_ranks(VRP_ratios_60, rv_60, highvrpcorrs_60, stockpx_df, dte=60, strike_count=strike_count, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_60)
-        vrpranks_90 = get_current_vrp_ratio_ranks(VRP_ratios_90, rv_90, highvrpcorrs_90, stockpx_df, dte=90, strike_count=strike_count, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_90)
+        vrpranks_30 = get_current_vrp_ratio_ranks(VRP_ratios_30, rv_30, highvrpcorrs_30, stockpx_df, dte=30, strike_count=strike_count, 
+                                                  volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_30)
+        vrpranks_60 = get_current_vrp_ratio_ranks(VRP_ratios_60, rv_60, highvrpcorrs_60, stockpx_df, dte=60, strike_count=strike_count, 
+                                                  volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_60)
+        vrpranks_90 = get_current_vrp_ratio_ranks(VRP_ratios_90, rv_90, highvrpcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
+                                                  volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_90)
 
     plot_iv_ratios(ivranks_30, IV_ratios_30, iv30_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True ,title=plot_titles[0], use_df=use_df)
     plot_iv_ratios(ivranks_60, IV_ratios_60, iv60_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True ,title=plot_titles[1], use_df=use_df)
