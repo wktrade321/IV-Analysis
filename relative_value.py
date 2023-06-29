@@ -31,10 +31,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import selenium.common.exceptions
-capa = DesiredCapabilities.CHROME.copy()
-capa["pageLoadStrategy"] = "eager"
 
 
 chrome_options = Options()
@@ -42,6 +39,7 @@ chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--start-maximized')
+chrome_options.page_load_strategy = 'eager'
 
 
 
@@ -62,6 +60,21 @@ c = easy_client(
 
 
 ndl.ApiConfig.api_key = os.environ['ndl_api_key']
+
+# %%
+def get_current_vix_contango():
+    index_text = ['1-2','2-3','3-4','4-5','5-6','6-7','7-8']
+
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
+    driver.get('http://vixcentral.com')
+    data = driver.find_elements(by=By.TAG_NAME, value='td')
+
+    data_text = [x.text for x in data[:len(index_text)] if '%' in x.text]
+
+    contango = pd.Series(data_text,index=index_text)
+    print('VIX Futures Curve Contango:')
+    display(contango)
+    return contango
 
 # %%
 def get_iv_from_straddle(straddle_price: float, underlying_price: float, dte: int or float=30):
@@ -586,7 +599,7 @@ def plot_vrp_ratios(ranks_df: pd.Series or pd.DataFrame, vrp_ratio_df: pd.DataFr
 # %%
 
 def scrape_yahoo_screener(url: str):
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options, desired_capabilities=capa)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
     driver.get(url + '?offset=0&count=100')
     results = int(driver.find_element(By.CSS_SELECTOR, 'span[class="Mstart(15px) Fw(500) Fz(s)"]').text.split(' ')[-2])
@@ -610,7 +623,7 @@ def scrape_yahoo_screener(url: str):
 
 # %%
 def get_earnings_next_x_days(days: int=7):
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options, desired_capabilities=capa)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     dayrange = pd.date_range(datetime.today(), datetime.today()+timedelta(days))
     start = datetime.strftime(dayrange[0],'%Y-%m-%d')
     end = datetime.strftime(dayrange[-1],'%Y-%m-%d')
@@ -645,7 +658,7 @@ def get_earnings_next_x_days(days: int=7):
 
 # %%
 def get_earnings_last_x_days(days: int=7):
-    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options, desired_capabilities=capa)
+    driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     dayrange = pd.date_range(datetime.today()-timedelta(days), datetime.today())
     start = datetime.strftime(dayrange[0],'%Y-%m-%d')
     end = datetime.strftime(dayrange[-1],'%Y-%m-%d')

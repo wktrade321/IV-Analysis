@@ -33,23 +33,24 @@ def get_pre_releases(yahoo_screen_url: str, next_x_days: int=7, write_to_file: b
             continue
         
         print(ticker)
-        try:
-            time.sleep(0.5)
-            t = yf.Ticker(ticker)
+        #try:
+        time.sleep(0.5)
+        t = yf.Ticker(ticker)
 
-            if len(t.news)==0:
-                clear_output()
-                continue
+        if len(t.news)==0:
+            clear_output()
+            continue
 
-            news = pd.DataFrame(t.news)[['title', 'publisher','providerPublishTime','link']]
-            news['providerPublishTime'] = (1_000_000_000*news['providerPublishTime']).apply(pd.Timestamp)
-            news['ticker'] = ticker
-            news = news[news['title'].str.lower().str.contains('preliminary')]
-            if news.size == 0:
-                clear_output()
-                continue
-            dfs.append(news)
+        news = pd.DataFrame(t.news)[['title', 'publisher','providerPublishTime','link']]
+        news['providerPublishTime'] = (1_000_000_000*news['providerPublishTime']).apply(pd.Timestamp)
+        news['ticker'] = ticker
+        news = news[news['title'].str.lower().str.contains('preliminary')]
+        if news.size == 0:
+            clear_output()
+            continue
+        dfs.append(news)
 
+        """
         except requests.JSONDecodeError:
             print('ERROR: '+ticker)
             time.sleep(2)
@@ -73,7 +74,7 @@ def get_pre_releases(yahoo_screen_url: str, next_x_days: int=7, write_to_file: b
                 print('ERROR: '+ticker)
                 clear_output()
                 continue
-
+        """
         clear_output()
 
     if len(dfs) == 0:
