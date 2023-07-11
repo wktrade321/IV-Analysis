@@ -20,10 +20,7 @@ from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
-from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 import selenium.common.exceptions
-capa = DesiredCapabilities.CHROME.copy()
-capa["pageLoadStrategy"] = "eager"
 
 
 chrome_options = Options()
@@ -31,7 +28,7 @@ chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--start-maximized')
-
+chrome_options.page_load_strategy = 'eager'
 
 
 import os
@@ -266,9 +263,17 @@ def get_trades_by_exp(account_id: str='255715792', lookback: int=365, start_date
     txns = pd.read_json(r)[['netAmount', 'transactionDate']]
     trades = list(pd.read_json(r)['transactionItem'])
     trades = pd.DataFrame(trades)
+
     inst = pd.DataFrame(list(trades['instrument']))
-    trades[['underlying', 'exp', 'putCall']] = inst[['underlyingSymbol', 'optionExpirationDate', 'putCall']]
-    txns[['amount', 'price', 'cost', 'instruction', 'positionEffect', 'underlying', 'exp', 'putCall']] = trades[['amount', 'price', 'cost', 'instruction', 'positionEffect', 'underlying', 'exp', 'putCall']]
+    trades[['underlying', 'exp', 'putCall', 'cusip']] = inst[['underlyingSymbol', 'optionExpirationDate', 'putCall', 'cusip']]
+    if symbols is not None:
+        trades = trades[trades['underlying'].isin(symbols)]
+
+    trades['strike'] = pd.to_numeric(trades['cusip'].str[-7:])/1000
+
+    txns[['amount', 'price', 'cost', 'instruction', 'positionEffect', 'underlying', 'exp', 'strike', 'putCall']] = \
+        trades[['amount', 'price', 'cost', 'instruction', 'positionEffect', 'underlying', 'exp', 'strike', 'putCall']]
+    
     txns.set_index('transactionDate', inplace=True)
     txns.index = pd.to_datetime(txns.index).tz_localize(None)
     if start_date is not None:
@@ -279,16 +284,13 @@ def get_trades_by_exp(account_id: str='255715792', lookback: int=365, start_date
     trades['date'] = trades.index.date
     trades['exp'] = pd.to_datetime(trades['exp']).dt.date
 
-    if symbols is not None:
-        trades = trades[trades['underlying'].isin(symbols)]
-
 
     closing = trades[trades['positionEffect'] == 'CLOSING']
     opening = trades[trades['positionEffect'] == 'OPENING']
-    closing2 = closing.groupby(by=['underlying','exp'])[['amount','cost']].sum()
-    opening2 = opening.groupby(by=['underlying','exp'])[['amount','cost']].sum()
-    closing3 = closing.groupby(by=['underlying','exp'])['date'].max()
-    opening3 = opening.groupby(by=['underlying','exp'])['date'].min()
+    closing2 = closing.groupby(by=['underlying','exp','strike'])[['amount','cost']].sum()
+    opening2 = opening.groupby(by=['underlying','exp','strike'])[['amount','cost']].sum()
+    closing3 = closing.groupby(by=['underlying','exp','strike'])['date'].max()
+    opening3 = opening.groupby(by=['underlying','exp','strike'])['date'].min()
     trades2 = pd.merge(opening2, closing2, how='outer', left_index=True, right_index=True, suffixes=['_open','_close'])
     trades2['cost_open'] = trades2['cost_open']*-1
 
