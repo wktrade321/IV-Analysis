@@ -65,12 +65,21 @@ ndl.ApiConfig.api_key = os.environ['ndl_api_key']
 
 # %%
 def get_current_vix_contango():
-    index_text = ['1-2','2-3','3-4','4-5','5-6','6-7','7-8']
+    index_text = ['Roll Yield','1-2','2-3','3-4','4-5','5-6','6-7','7-8']
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.get('http://vixcentral.com')
+    
     table = BeautifulSoup(driver.page_source).find_all('table')[0]
     data = [x.text for x in table.find_all('td') if '%' in x.text]
+
+
+    soup = BeautifulSoup(driver.page_source).find_all('tspan', {'class': 'highcharts-text-outline'})
+    text = [x.text[:5] for x in soup]
+    vixspot, m1 = float(text[8]), float(text[0])
+    rollyield = str(round(100*(m1/vixspot - 1),2)) + '%'
+
+    data.insert(0,rollyield)
 
     contango = pd.Series(data,index=index_text)
     print('VIX Futures Curve Contango:')
