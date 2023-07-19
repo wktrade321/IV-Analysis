@@ -83,7 +83,7 @@ def get_current_vix_contango():
 
     contango = pd.Series(data,index=index_text)
     print('VIX Futures Curve Contango:')
-    display(contango)
+    print(contango)
     return contango
 
 # %%
@@ -176,9 +176,11 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
         puts = pd.DataFrame(tk.option_chain(e).puts)
     except TypeError:
         time.sleep(2)
-        calls = pd.DataFrame(tk.option_chain(e).calls)
-        puts = pd.DataFrame(tk.option_chain(e).puts)
-        pass
+        try:
+            calls = pd.DataFrame(tk.option_chain(e).calls)
+            puts = pd.DataFrame(tk.option_chain(e).puts)
+        except TypeError:
+            return np.nan
 
 
     
