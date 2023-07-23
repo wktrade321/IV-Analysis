@@ -158,7 +158,7 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
     try:
         s = tk.info['currentPrice']
     except KeyError:
-        s = tk.fast_info['lastPrice']
+        s = tk.get_fast_info['lastPrice']
 
     thirdfris = pd.date_range(td,td+timedelta(365),freq='WOM-3FRI')
 
@@ -512,7 +512,7 @@ def plot_iv_ratios(ranks_df: pd.Series or pd.DataFrame, iv_ratio_df: pd.DataFram
         except KeyError:
             beta = None
         z = round(ranks_df.loc[(s1,s2), 'zscore'],2)
-        pctl = int(round(ranks_df.loc[(s1,s2), 'pctl'], 0))
+        pctl = int(round(np.nan_to_num(ranks_df.loc[(s1,s2), 'pctl'],0.0), 0))
         buttons.append(
             dict(
                 method='update',
