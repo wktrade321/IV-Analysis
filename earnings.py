@@ -32,21 +32,35 @@ def get_pre_releases(yahoo_screen_url: str, next_x_days: int=7, write_to_file: b
         if ticker not in earnings_next_x.index:
             continue
         
-        print(ticker)
-        #try:
+
         time.sleep(0.5)
         t = yf.Ticker(ticker)
 
-        if len(t.get_news())==0:
+        try:
+            if len(t.get_news())==0:
+                clear_output()
+                continue
+        except JSONDecodeError:
             clear_output()
+            print(f'ERROR: {ticker}')
             continue
 
-        news = pd.DataFrame(t.get_news())[['title', 'publisher','providerPublishTime','link']]
+        try:
+            news = pd.DataFrame(t.get_news())[['title', 'publisher','providerPublishTime','link']]
+        except JSONDecodeError:
+            clear_output()
+            print(f'ERROR: {ticker}')
+            continue
         news['providerPublishTime'] = (1_000_000_000*news['providerPublishTime']).apply(pd.Timestamp)
         news['ticker'] = ticker
         news = news[news['title'].str.lower().str.contains('preliminary')]
-        if news.size == 0:
+        try:
+            if news.size == 0:
+                clear_output()
+                continue
+        except JSONDecodeError:
             clear_output()
+            print(f'ERROR: {ticker}')
             continue
         dfs.append(news)
 

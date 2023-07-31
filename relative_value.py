@@ -88,6 +88,14 @@ def get_current_vix_contango():
 
 # %%
 def get_historical_vix_contango(start_date: datetime, end_date: datetime, write_to_file: bool = True, output_path: str='VIX_Contango'):
+    
+
+    chrome_options = Options()
+    chrome_options.add_argument('--no-sandbox')
+    chrome_options.add_argument('--disable-dev-shm-usage')
+    chrome_options.add_argument('--start-maximized')
+    chrome_options.page_load_strategy = 'normal'
+    
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.get('http://vixcentral.com')
 
@@ -107,11 +115,19 @@ def get_historical_vix_contango(start_date: datetime, end_date: datetime, write_
     datadict = {}
 
     while current_date <= end_date:
+        print(current_date)
+
         if current_date.date() >= datetime.today().date() - timedelta(1):
             break
         table = BeautifulSoup(driver.page_source).find_all('table')[2]
         data = [x.text for x in table.find_all('td')]
-        datadict[current_date] = data
+        datadict[current_date] = data[:7]
+
+        soup = BeautifulSoup(driver.page_source).find_all('tspan', {'class': 'highcharts-text-outline'})
+        text = [x.text[:5] for x in soup]
+        m1 = float(text[16])
+
+        datadict[current_date].append(m1)
 
         nextbutton = driver.find_element(By.XPATH, '//*[@id="bnext"]')
         nextbutton.click()
@@ -120,11 +136,23 @@ def get_historical_vix_contango(start_date: datetime, end_date: datetime, write_
         current_date_str = WebDriverWait(driver,1).until(EC.presence_of_element_located((By.XPATH,'//*[@id="date1"]'))).get_property('value')
         current_date = datetime.strptime(current_date_str, '%B %d, %Y')
 
+        clear_output()
+
     driver.close()
     df = pd.DataFrame.from_dict(datadict,'index')
-    df = df.rename(columns={0:'1-2', 1:'2-3', 2:'3-4', 3:'4-5', 4:'5-6', 5:'6-7', 6:'7-8'})
+    df = df.rename(columns={0:'1-2', 1:'2-3', 2:'3-4', 3:'4-5', 4:'5-6', 5:'6-7', 6:'7-8', 7:'M1'})
+
+    vixspot = yf.download('^VIX', start_date, end_date, interval='1d')['Close']
+
+    df = df.join(vixspot,how='left')
+
+    df['roll_yield'] = df['M1']/df['Close'] - 1
+
+    df = df.rename(columns={'Close': 'VIX_spot'})
+    
+    if write_to_file:
+        df.to_csv(f'{output_path}/vix_contango_{start_date.year}-{start_date.month}-{start_date.day}_{end_date.year}-{end_date.month}-{end_date.day}')
         
-    df.to_csv(f'{output_path}/vix_contango_{start_date.year}-{start_date.month}-{start_date.day}_{end_date.year}-{end_date.month}-{end_date.day}')
     return df
     
 
@@ -184,8 +212,8 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
 
 
     
-    calls = calls.sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
-    puts = puts.sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
+    calls = calls[calls['strike'] >= s].sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
+    puts = puts[puts['strike'] >= s].sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
 
 
     if (calls['lastTradeDate'].dt.date < td).any() or (puts['lastTradeDate'].dt.date < td).any():
@@ -199,7 +227,6 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
         straddle_price = opts['lastPrice'].mean()*2
         dte_exact = (datetime.strptime(e,'%Y-%m-%d') - datetime.today()).days
         return get_iv_from_straddle(straddle_price=straddle_price, underlying_price=s, dte=dte_exact)
-
 
 # %%
 def get_hist_iv_data(tickers_avail: list, start_date: datetime or datetime.date=datetime.today()-timedelta(365), end_date: datetime or datetime.date=datetime.today(),
