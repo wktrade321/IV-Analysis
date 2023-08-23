@@ -25,7 +25,7 @@ load_dotenv('e.env')
 def get_pre_releases(yahoo_screen_url: str, next_x_days: int=7, write_to_file: bool=False):
     dfs = []
     
-    tickers = rv.get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=None, earnings_days_forward=0, earnings_days_back=0, etf_limit=0)[0]
+    tickers = rv.scrape_yahoo_screener(url = yahoo_screen_url)['Symbol'].to_list()
     earnings_next_x = rv.get_earnings_next_x_days(next_x_days)[['earnings_date']]
 
     for ticker in tqdm(tickers):
@@ -36,32 +36,19 @@ def get_pre_releases(yahoo_screen_url: str, next_x_days: int=7, write_to_file: b
         time.sleep(0.5)
         t = yf.Ticker(ticker)
 
-        try:
-            if len(t.get_news())==0:
-                clear_output()
-                continue
-        except JSONDecodeError:
+        if len(t.get_news())==0:
             clear_output()
-            print(f'ERROR: {ticker}')
             continue
 
-        try:
-            news = pd.DataFrame(t.get_news())[['title', 'publisher','providerPublishTime','link']]
-        except JSONDecodeError:
-            clear_output()
-            print(f'ERROR: {ticker}')
-            continue
+        news = pd.DataFrame(t.get_news())[['title', 'publisher','providerPublishTime','link']]
+
         news['providerPublishTime'] = (1_000_000_000*news['providerPublishTime']).apply(pd.Timestamp)
         news['ticker'] = ticker
         news = news[news['title'].str.lower().str.contains('preliminary')]
-        try:
-            if news.size == 0:
-                clear_output()
-                continue
-        except JSONDecodeError:
+        if news.size == 0:
             clear_output()
-            print(f'ERROR: {ticker}')
             continue
+
         dfs.append(news)
 
         clear_output()

@@ -5,14 +5,12 @@ from pandas.tseries.offsets import BDay
 from datetime import date, datetime, timedelta
 import time
 import yfinance as yf
-from pyetfdb_scraper import etf
 from IPython.display import clear_output
 import requests
 from bs4 import BeautifulSoup
 import zipfile
 from io import BytesIO
 
-from plotly.offline import iplot
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
@@ -154,7 +152,6 @@ def get_historical_vix_contango(start_date: datetime, end_date: datetime, write_
         df.to_csv(f'{output_path}/vix_contango_{start_date.year}-{start_date.month}-{start_date.day}_{end_date.year}-{end_date.month}-{end_date.day}')
         
     return df
-    
 
 # %%
 def get_iv_from_straddle(straddle_price: float, underlying_price: float, dte: int or float=30):
@@ -340,7 +337,8 @@ def get_correlated_vrps(vrp_df, stockpx_df, corr_threshold: float, stockpx_thres
 
 # %%
 def get_current_iv_ratio_ranks(iv_ratio_df: pd.DataFrame, corr_df:pd.DataFrame, stockpx_df: pd.DataFrame,
-                         dte: int=30, strike_count: int=2, volume_lookback: int=1, dte_threshold: int=20, z_window: int=100, use_iv_df: bool=False, iv_df=None):
+                         dte: int=30, strike_count: int=2, volume_lookback: int=1, dte_threshold: int=20, 
+                         exclude_earnings: bool=False, z_window: int=100, use_iv_df: bool=False, iv_df=None):
 
 
 
@@ -469,11 +467,14 @@ def get_current_vrp_ratio_ranks(vrp_ratio_df: pd.DataFrame, rv_df: pd.DataFrame,
 
 # %%
 def plot_iv_ratios(ranks_df: pd.Series or pd.DataFrame, iv_ratio_df: pd.DataFrame or pd.Series, iv_df: pd.DataFrame or pd.Series, n:int=100,
-                   z_window: int=100, interactive: bool=False, write_to_file: bool=True, title: str='IV30', use_df: bool=False):
+                   z_window: int=100, z_threshold: float=3.0, interactive: bool=False, write_to_file: bool=True, title: str='IV30', use_df: bool=False):
 
     ranks_df = ranks_df[:n]
+    ranks_df = ranks_df[ranks_df['zscore'].abs() >= z_threshold]
+
     iv_ratio_df = iv_ratio_df.T
     iv_ratio_df.index.names = ['pair1','pair2']
+    
 
 
     if isinstance(ranks_df.index,pd.MultiIndex):
@@ -572,12 +573,13 @@ def plot_iv_ratios(ranks_df: pd.Series or pd.DataFrame, iv_ratio_df: pd.DataFram
             os.mkdir('IV_Plots')
         f.write_html(f'IV_Plots/{title}_Ratios_{datetime.today().replace(microsecond=0)}.html')
 
-
 # %%
 def plot_vrp_ratios(ranks_df: pd.Series or pd.DataFrame, vrp_ratio_df: pd.DataFrame or pd.Series, vrp_df: pd.DataFrame or pd.Series, n:int=100,
-                   z_window: int=100, interactive: bool=False, write_to_file: bool=True, title: str='VRP30', use_df: bool=False):
+                   z_window: int=100, z_threshold: float = 3.0, interactive: bool=False, write_to_file: bool=True, title: str='VRP30', use_df: bool=False):
 
     ranks_df = ranks_df[:n]
+    ranks_df = ranks_df[ranks_df['zscore'].abs() >= z_threshold]
+    
     vrp_ratio_df = vrp_ratio_df.T
     vrp_ratio_df.index.names = ['pair1','pair2']
 
@@ -676,9 +678,7 @@ def plot_vrp_ratios(ranks_df: pd.Series or pd.DataFrame, vrp_ratio_df: pd.DataFr
             os.mkdir('IV_Plots')
         f.write_html(f'IV_Plots/{title}_Ratios_{datetime.today().replace(microsecond=0)}.html')
 
-
 # %%
-
 def scrape_yahoo_screener(url: str):
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
 
@@ -699,8 +699,7 @@ def scrape_yahoo_screener(url: str):
     driver.close()
 
     df = pd.concat(dfs)
-    return df
-
+    return df 
 
 # %%
 def get_earnings_next_x_days(days: int=7):
@@ -785,25 +784,31 @@ def get_available_tickers(yahoo_screen_url: str, etf_screen_url: str, earnings_d
     yf_screen = scrape_yahoo_screener(yahoo_screen_url)['Symbol'].to_list()
 
     if earnings_days_forward > 0:
-        earnings_next_x = get_earnings_next_x_days(earnings_days_forward).index.to_list()
+        earnings_next_x = get_earnings_next_x_days(earnings_days_forward)
     else:
         earnings_next_x = []
 
     if earnings_days_back > 0:
-        earnings_last_x = get_earnings_last_x_days(earnings_days_back).index.to_list()
+        earnings_last_x = get_earnings_last_x_days(earnings_days_back)
     else:
         earnings_last_x = []
 
-    ivticks = [x for x in yf_screen if x in tickers_avail.index and x not in earnings_next_x]  
+    earnings_next_30 = earnings_next_x[pd.to_datetime(earnings_next_x['earnings_date']) <= datetime.today() + timedelta(30)].index.to_list()
+    earnings_next_60 = earnings_next_x[pd.to_datetime(earnings_next_x['earnings_date']) <= datetime.today() + timedelta(60)].index.to_list()
+    earnings_next_90 = earnings_next_x.index.to_list()
+
+    ivticks_30 = [x for x in yf_screen if x in tickers_avail.index and x not in earnings_next_30]  
+    ivticks_60 = [x for x in yf_screen if x in tickers_avail.index and x not in earnings_next_60]  
+    ivticks_90 = [x for x in yf_screen if x in tickers_avail.index and x not in earnings_next_90]  
     vrpticks = [x for x in yf_screen if x in tickers_avail.index and x not in earnings_last_x]
 
     if etf_limit > 0:
         etfs = scrape_yahoo_screener(etf_screen_url)['Symbol'].to_list()[:etf_limit]
-        ivticks = ivticks + etfs
+        ivticks_30, ivticks_60, ivticks_90, = ivticks_30 + etfs, ivticks_60 + etfs, ivticks_90 + etfs
         vrpticks = vrpticks + etfs
-        return list(ivticks), list(vrpticks)
+        return list(ivticks_30), list(ivticks_60), list(ivticks_90), list(vrpticks)
     else:
-        return list(ivticks), list(vrpticks)
+        return list(ivticks_30), list(ivticks_60), list(ivticks_90), list(vrpticks)
 
 # %%
 def read_hist_iv_data_from_csv(path):
@@ -815,7 +820,6 @@ def read_hist_iv_data_from_csv(path):
     return dfdict
 
 # %%
-
 def update_iv_csvs(basepath: str, rows=None, start_date = datetime.today()-timedelta(1), end_date = datetime.today(), keep: str='first'):
 
 
@@ -860,23 +864,21 @@ def update_iv_csvs(basepath: str, rows=None, start_date = datetime.today()-timed
 
     return dfdict
 
-
-
 # %%
 def update_and_plot_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: str, plot_vrp: bool=False, earnings_days_forward: int=7, earnings_days_back: int=7, rows: int=None, 
                             start_date=datetime.today()-timedelta(1), end_date=datetime.today(), 
                             corr_thresholds: tuple=(0.9,0.91,0.92,0.8,0.84,0.86), stockpx_threshold=2.0,  use_df=False, use_stockpx_corr=False, 
-                            strike_count=2, volume_lookback: int=1, dte_threshold: int=20, z_window=100, plots_n=100, etf_limit: int=50, plot_titles=('IV30', 'IV60', 'IV90', 'VRP30', 'VRP60', 'VRP90')):
+                            strike_count=2, volume_lookback: int=1, dte_threshold: int=20, z_window=100, z_threshold=3.0, plots_n=100, etf_limit: int=50, plot_titles=('IV30', 'IV60', 'IV90', 'VRP30', 'VRP60', 'VRP90')):
 
     #earnings file
     #https://www.barchart.com/stocks/earnings-within-7-days?viewName=main&orderBy=nextEarningsDate&orderDir=asc
 
     if plot_vrp:
-        ivticks, vrpticks = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, earnings_days_forward=earnings_days_forward, 
+        ivticks_30, ivticks_60, ivticks_90, vrpticks = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, earnings_days_forward=earnings_days_forward, 
                                                 earnings_days_back=earnings_days_back, etf_limit=etf_limit)
     else:
-        ivticks = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, earnings_days_forward=earnings_days_forward, 
-                                              earnings_days_back=0, etf_limit=etf_limit)[0]
+        ivticks_30, ivticks_60, ivticks_90 = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, earnings_days_forward=earnings_days_forward, 
+                                              earnings_days_back=0, etf_limit=etf_limit)[:3]
 
     if rows is not None:
         dfdict = update_iv_csvs(basepath, rows=rows)
@@ -900,11 +902,11 @@ def update_and_plot_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath:
 
 
     highcorrs_30, IV_ratios_30 = get_correlated_ivs(iv30_df, stockpx_df, corr_thresholds[0], stockpx_threshold, 
-                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks)
+                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks_30)
     highcorrs_60, IV_ratios_60 = get_correlated_ivs(iv60_df, stockpx_df, corr_thresholds[1], stockpx_threshold, 
-                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks)
+                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks_60)
     highcorrs_90, IV_ratios_90 = get_correlated_ivs(iv90_df, stockpx_df, corr_thresholds[2], stockpx_threshold, 
-                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks)
+                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks_90)
     
     if plot_vrp:
         highvrpcorrs_30, VRP_ratios_30 = get_correlated_vrps(vrp_30, stockpx_df, corr_thresholds[3], stockpx_threshold,  
@@ -929,30 +931,28 @@ def update_and_plot_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath:
         vrpranks_90 = get_current_vrp_ratio_ranks(VRP_ratios_90, rv_90, highvrpcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
                                                   volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_90)
         
-    plot_iv_ratios(ivranks_30, IV_ratios_30, iv30_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[0], use_df=use_df)
-    plot_iv_ratios(ivranks_60, IV_ratios_60, iv60_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[1], use_df=use_df)
-    plot_iv_ratios(ivranks_90, IV_ratios_90, iv90_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[2], use_df=use_df)
+    plot_iv_ratios(ivranks_30, IV_ratios_30, iv30_df, n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[0], use_df=use_df)
+    plot_iv_ratios(ivranks_60, IV_ratios_60, iv60_df, n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[1], use_df=use_df)
+    plot_iv_ratios(ivranks_90, IV_ratios_90, iv90_df, n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[2], use_df=use_df)
 
     if plot_vrp:
-        plot_vrp_ratios(vrpranks_30, VRP_ratios_30, vrp_30,  n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[3], use_df=use_df)
-        plot_vrp_ratios(vrpranks_60, VRP_ratios_60, vrp_60,  n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[4], use_df=use_df)
-        plot_vrp_ratios(vrpranks_90, VRP_ratios_90, vrp_90,  n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[5], use_df=use_df)
+        plot_vrp_ratios(vrpranks_30, VRP_ratios_30, vrp_30,  n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[3], use_df=use_df)
+        plot_vrp_ratios(vrpranks_60, VRP_ratios_60, vrp_60,  n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[4], use_df=use_df)
+        plot_vrp_ratios(vrpranks_90, VRP_ratios_90, vrp_90,  n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[5], use_df=use_df)
 
 # %%
 def plot_current_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: str, plot_vrp: bool=False, earnings_days_forward: int=7, earnings_days_back: int=7,
                         corr_thresholds: tuple=(0.9,0.91,0.92,0.8,0.84,0.86), stockpx_threshold=2.0, use_df=False, use_stockpx_corr=False, 
-                        strike_count=2, volume_lookback: int=1, dte_threshold: int=20, z_window=100, plots_n=100, etf_limit: int=50, 
+                        strike_count=2, volume_lookback: int=1, dte_threshold: int=20, z_window=100, z_threshold=3.0, plots_n=100, etf_limit: int=50, 
                         plot_titles=('IV30', 'IV60', 'IV90', 'VRP30', 'VRP60', 'VRP90')):
 
-    #earnings file
-    #https://www.barchart.com/stocks/earnings-within-7-days?viewName=main&orderBy=nextEarningsDate&orderDir=asc
 
     if plot_vrp:
-        ivticks, vrpticks = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, earnings_days_forward=earnings_days_forward, 
-                                              earnings_days_back=earnings_days_back, etf_limit=etf_limit)
+        ivticks_30, ivticks_60, ivticks_90, vrpticks = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, 
+                                            earnings_days_forward=earnings_days_forward, earnings_days_back=earnings_days_back, etf_limit=etf_limit)
     else:
-        ivticks = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, earnings_days_forward=earnings_days_forward, 
-                                              earnings_days_back=0, etf_limit=etf_limit)[0]
+        ivticks_30, ivticks_60, ivticks_90 = get_available_tickers(yahoo_screen_url=yahoo_screen_url, etf_screen_url=etf_screen_url, 
+                                                        earnings_days_forward=earnings_days_forward, earnings_days_back=0, etf_limit=etf_limit)[:3]
 
 
     dfdict = read_hist_iv_data_from_csv(basepath)
@@ -973,11 +973,11 @@ def plot_current_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: st
         vrp_90 = get_vrps(stockpx_df, iv90_df, 90)
 
     highcorrs_30, IV_ratios_30 = get_correlated_ivs(iv30_df, stockpx_df, corr_thresholds[0], stockpx_threshold, 
-                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks)
+                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks_30)
     highcorrs_60, IV_ratios_60 = get_correlated_ivs(iv60_df, stockpx_df, corr_thresholds[1], stockpx_threshold, 
-                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks)
+                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks_60)
     highcorrs_90, IV_ratios_90 = get_correlated_ivs(iv90_df, stockpx_df, corr_thresholds[2], stockpx_threshold, 
-                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks)
+                                                    use_iv_df=use_df, use_stockpx_corr=use_stockpx_corr, tickers=ivticks_90)
     
     if plot_vrp:
         highvrpcorrs_30, VRP_ratios_30 = get_correlated_vrps(vrp_30, stockpx_df, corr_thresholds[3], stockpx_threshold,  
@@ -989,11 +989,14 @@ def plot_current_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: st
         
     
     ivranks_30 = get_current_iv_ratio_ranks(IV_ratios_30, highcorrs_30, stockpx_df, dte=30, strike_count=strike_count, 
-                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv30_df)
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold,
+                                            z_window=z_window, use_iv_df=use_df, iv_df=iv30_df)
     ivranks_60 = get_current_iv_ratio_ranks(IV_ratios_60, highcorrs_60, stockpx_df, dte=60, strike_count=strike_count, 
-                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv60_df)
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold,
+                                            z_window=z_window, use_iv_df=use_df, iv_df=iv60_df)
     ivranks_90 = get_current_iv_ratio_ranks(IV_ratios_90, highcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
-                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_iv_df=use_df, iv_df=iv90_df)
+                                            volume_lookback=volume_lookback, dte_threshold=dte_threshold,
+                                            z_window=z_window, use_iv_df=use_df, iv_df=iv90_df)
     
     if plot_vrp:
         vrpranks_30 = get_current_vrp_ratio_ranks(VRP_ratios_30, rv_30, highvrpcorrs_30, stockpx_df, dte=30, strike_count=strike_count, 
@@ -1003,13 +1006,13 @@ def plot_current_ratios(yahoo_screen_url: str, etf_screen_url: str, basepath: st
         vrpranks_90 = get_current_vrp_ratio_ranks(VRP_ratios_90, rv_90, highvrpcorrs_90, stockpx_df, dte=90, strike_count=strike_count, 
                                                   volume_lookback=volume_lookback, dte_threshold=dte_threshold, z_window=z_window, use_vrp_df=use_df, vrp_df=vrp_90)
 
-    plot_iv_ratios(ivranks_30, IV_ratios_30, iv30_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True ,title=plot_titles[0], use_df=use_df)
-    plot_iv_ratios(ivranks_60, IV_ratios_60, iv60_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True ,title=plot_titles[1], use_df=use_df)
-    plot_iv_ratios(ivranks_90, IV_ratios_90, iv90_df, n=plots_n, z_window=z_window, interactive=False, write_to_file=True ,title=plot_titles[2], use_df=use_df)
+    plot_iv_ratios(ivranks_30, IV_ratios_30, iv30_df, n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True ,title=plot_titles[0], use_df=use_df)
+    plot_iv_ratios(ivranks_60, IV_ratios_60, iv60_df, n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True ,title=plot_titles[1], use_df=use_df)
+    plot_iv_ratios(ivranks_90, IV_ratios_90, iv90_df, n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True ,title=plot_titles[2], use_df=use_df)
     
     if plot_vrp:
-        plot_vrp_ratios(vrpranks_30, VRP_ratios_30, vrp_30,  n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[3], use_df=use_df)
-        plot_vrp_ratios(vrpranks_60, VRP_ratios_60, vrp_60,  n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[4], use_df=use_df)
-        plot_vrp_ratios(vrpranks_90, VRP_ratios_90, vrp_90,  n=plots_n, z_window=z_window, interactive=False, write_to_file=True, title=plot_titles[5], use_df=use_df)
+        plot_vrp_ratios(vrpranks_30, VRP_ratios_30, vrp_30,  n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[3], use_df=use_df)
+        plot_vrp_ratios(vrpranks_60, VRP_ratios_60, vrp_60,  n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[4], use_df=use_df)
+        plot_vrp_ratios(vrpranks_90, VRP_ratios_90, vrp_90,  n=plots_n, z_window=z_window, z_threshold=z_threshold, interactive=False, write_to_file=True, title=plot_titles[5], use_df=use_df)
 
 
