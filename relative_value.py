@@ -2,20 +2,22 @@
 import numpy as np
 import pandas as pd
 from pandas.tseries.offsets import BDay
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 import time
 import yfinance as yf
-from IPython.display import clear_output
+from IPython.display import clear_output, display
 import requests
 from bs4 import BeautifulSoup
 import zipfile
 from io import BytesIO
 
+import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 from tqdm import tqdm
 import scipy
+from scipy import stats
 import os
 from dotenv import load_dotenv
 
@@ -31,6 +33,7 @@ from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.action_chains import ActionChains
 import selenium.common.exceptions
 
 
@@ -39,11 +42,14 @@ chrome_options.add_argument('--no-sandbox')
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-dev-shm-usage')
 chrome_options.add_argument('--start-maximized')
-chrome_options.page_load_strategy = 'normal'
+chrome_options.page_load_strategy = 'eager'
 
 
 
 load_dotenv('e.env')
+
+
+pd.options.display.float_format = "{:,.2f}".format
 
 # %%
 #initialize chromedriver function 
@@ -61,28 +67,91 @@ c = easy_client(
 
 ndl.ApiConfig.api_key = os.environ['ndl_api_key']
 
+
 # %%
-def get_current_vix_contango():
-    index_text = ['Roll Yield','1-2','2-3','3-4','4-5','5-6','6-7','7-8']
+def get_current_vix_metrics(return_vals: bool=False, display_vals: bool=True):
+    text_labels = ['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'vix', 'vix3m', 'vix9d', 'vix6m', 'vixmo', 'hv10', 'hv20', 'hv30']
 
     driver = webdriver.Chrome(service=Service(ChromeDriverManager().install()), options=chrome_options)
     driver.get('http://vixcentral.com')
+    soup = BeautifulSoup(driver.page_source, features='lxml').find_all('tspan', {'class': 'highcharts-text-outline'})
+    values = [float(x.text[:5]) for x in soup]
+
+
+    driver.quit()
+
+
+    term_struct = pd.Series(values[:len(text_labels)], index=text_labels)
+
+    thirdfris = pd.date_range(datetime.today() - timedelta(30), datetime.today() + timedelta(365),freq='WOM-3FRI')
+    exps = thirdfris - timedelta(30)
+
+    trading_dtes_before = [np.busday_count(datetime.today().date(), exp.date()) for exp in exps if exp < datetime.today()]
+    trading_dtes_after = [np.busday_count(datetime.today().date(), exp.date()) for exp in exps if exp > datetime.today()]
+
+    days_in_cycle = trading_dtes_after[0] - trading_dtes_before[-1]
+    dte1 = trading_dtes_after[0]
+    dte2 = trading_dtes_after[1]
+
+    roll = 1/days_in_cycle
+
+    vx30 = pd.Series(round((term_struct['m1']*dte1*roll) + (term_struct['m2']*(1 - dte1*roll)),2), index=['vx30'])
+    vx60 = pd.Series(round(term_struct['m3'] - (term_struct['m3'] - term_struct['m2'])*dte2*roll, 2), index=['vx60'])
+    voli = pd.Series(round(yf.download('^VOLI', progress=False)['Adj Close'].values[0],2), index=['voli'])
+
+    term_struct = pd.concat([voli, vx30, vx60, term_struct]) 
+
+    ratios = pd.Series()
+
+    ratios['VX30:VIX'] = round(term_struct['vx30']/term_struct['vix'], 3)
+    ratios['VIX:VIX9D'] = round(term_struct['vix']/term_struct['vix9d'], 3)
+    ratios['VIX3M:VIX'] = round(term_struct['vix3m']/term_struct['vix'], 3)
+    ratios['VIX6M:VIX'] = round(term_struct['vix6m']/term_struct['vix'], 3)
+    ratios['VX60:VX30'] = round(term_struct['vx60']/term_struct['vx30'], 3)
+    ratios['M7:M4'] = round(term_struct['m7']/term_struct['m4'], 3)
+    ratios['VIX:VOLI'] = round(term_struct['vix']/term_struct['voli'], 3)
+    ratios['VX30:HV30'] = round(term_struct['vx30']/term_struct['hv30'], 3)
+
     
-    table = BeautifulSoup(driver.page_source).find_all('table')[0]
-    data = [x.text for x in table.find_all('td') if '%' in x.text]
+    vix9d_hist = yf.download('^VIX9D', progress=False)['Adj Close']
+    vix_hist = yf.download('^VIX', progress=False)['Adj Close']
+    vix3m_hist = yf.download('^VIX3M', progress=False)['Adj Close']
+    vix6m_hist = yf.download('^VIX6M', progress=False)['Adj Close']
+
+    vix_vix9d_hist = (vix_hist/vix9d_hist).dropna()
+    vix3m_vix_hist = (vix3m_hist/vix_hist).dropna()
+    vix6m_vix_hist = (vix6m_hist/vix_hist).dropna()
+
+    percentiles = pd.Series()
+
+    percentiles['VIX:VIX9D'] = round(stats.percentileofscore(vix_vix9d_hist.values, ratios['VIX:VIX9D']),2)
+    percentiles['VIX3M:VIX'] = round(stats.percentileofscore(vix_vix9d_hist.values, ratios['VIX3M:VIX']),2)
+    percentiles['VIX6M:VIX'] = round(stats.percentileofscore(vix_vix9d_hist.values, ratios['VIX6M:VIX']),2)
+
+    if display_vals:
+        display(pd.DataFrame(ratios, columns=['Ratios:']).T)
+        display(pd.DataFrame(term_struct, columns=['Term Structure: ']).T)
+        display(pd.DataFrame(percentiles, columns=['Percentiles: ']).T)
 
 
-    soup = BeautifulSoup(driver.page_source).find_all('tspan', {'class': 'highcharts-text-outline'})
-    text = [x.text[:5] for x in soup]
-    vixspot, m1 = float(text[8]), float(text[0])
-    rollyield = str(round(100*(m1/vixspot - 1),2)) + '%'
+    futures_curve = pd.concat([ pd.DataFrame(term_struct['vix'], index=[datetime.today().date()], columns=['VIX Futures']),
+                              pd.DataFrame(term_struct['m1':'m8'].values, index = [exp.date() for exp in exps if exp > datetime.today()][:8], columns=['VIX Futures']) ])
+    futures_curve['month'] = ['VIX Spot', 'M1','M2','M3','M4','M5','M6','M7','M8']
 
-    data.insert(0,rollyield)
+    futures_curve['VIX Futures'] = pd.to_numeric(futures_curve['VIX Futures'])
 
-    contango = pd.Series(data,index=index_text)
-    print('VIX Futures Curve Contango:')
-    print(contango)
-    return contango
+
+    if return_vals:
+        return ratios, term_struct, percentiles, futures_curve
+
+# %%
+def plot_vix_futures_curve(futures_curve: pd.DataFrame, title: str='vix_futures_curve'):
+    fig = px.line(data_frame=futures_curve.reset_index(), x='index', y='VIX Futures', markers=True, text='VIX Futures', hover_name='month', hover_data={'index':False, 'month':True, 'VIX Futures': ':.2f'})
+    fig.update_traces(textposition='top left',texttemplate='%{y:.2f}', hovertemplate=None)
+    fig.update_layout(hovermode='x unified', plot_bgcolor="#333")
+    fig.update_xaxes(title_text = 'Expiration')
+    fig.update_yaxes(title_text = 'VIX Futures')
+    fig.write_html(f'{title}.html')
 
 # %%
 def get_historical_vix_contango(start_date: datetime, end_date: datetime, write_to_file: bool = True, output_path: str='VIX_Contango'):
@@ -117,11 +186,11 @@ def get_historical_vix_contango(start_date: datetime, end_date: datetime, write_
 
         if current_date.date() >= datetime.today().date() - timedelta(1):
             break
-        table = BeautifulSoup(driver.page_source).find_all('table')[2]
+        table = BeautifulSoup(driver.page_source, features='lxml').find_all('table')[2]
         data = [x.text for x in table.find_all('td')]
         datadict[current_date] = data[:7]
 
-        soup = BeautifulSoup(driver.page_source).find_all('tspan', {'class': 'highcharts-text-outline'})
+        soup = BeautifulSoup(driver.page_source, features='lxml').find_all('tspan', {'class': 'highcharts-text-outline'})
         text = [x.text[:5] for x in soup]
         m1 = float(text[16])
 
@@ -164,12 +233,12 @@ def get_iv_from_straddle(straddle_price: float, underlying_price: float, dte: in
 # %%
 def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookback: int=1, dte_threshold: int=20):
     """
-    get the current ATM implied volatility for a symbol and target DTE from yfinance. 
+        get the current ATM implied volatility for a symbol and target DTE from yfinance. 
 
-    :param dte: the target DTE of the options. The closest standard (monthly) expiration date to today+DTE is used
-    :param strike_count: how many of the closest ATM strikes are considered in the calc.
-    :param volume_lookback: number of trading days to look back for traded volume in the strikes being analyzed.
-                            if any of the strikes have no volume in the period, NaN is returned.
+        :param dte: the target DTE of the options. The closest standard (monthly) expiration date to today+DTE is used
+        :param strike_count: how many of the closest ATM strikes are considered in the calc.
+        :param volume_lookback: number of trading days to look back for traded volume in the strikes being analyzed.
+                                if any of the strikes have no volume in the period, NaN is returned.
     """
 
     td = (datetime.today() - BDay(volume_lookback)).date()
@@ -179,7 +248,7 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
     except KeyError:
         time.sleep(2)
         tk = yf.Ticker(symbol)
-    
+
     try:
         s = tk.info['currentPrice']
     except KeyError:
@@ -208,15 +277,15 @@ def get_current_iv(symbol: str, dte: int=30, strike_count: int=2, volume_lookbac
             return np.nan
 
 
-    
-    calls = calls[calls['strike'] >= s].sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
-    puts = puts[puts['strike'] >= s].sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
+
+    calls2 = calls[calls['strike'] >= s].sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
+    puts2 = puts[puts['strike'] >= s].sort_values(by='strike', key = lambda x: abs(x-s)).iloc[:strike_count,:]
 
 
-    if (calls['lastTradeDate'].dt.date < td).any() or (puts['lastTradeDate'].dt.date < td).any():
+    if (calls2['lastTradeDate'].dt.date < td).any() or (puts2['lastTradeDate'].dt.date < td).any():
         return np.nan
-    
-    opts = pd.concat([calls, puts])
+
+    opts = pd.concat([calls2, puts2])
 
     if datetime.today().hour >= 10:
         return opts['impliedVolatility'].mean()
@@ -571,7 +640,7 @@ def plot_iv_ratios(ranks_df: pd.Series or pd.DataFrame, iv_ratio_df: pd.DataFram
     if write_to_file:
         if not os.path.exists('IV_Plots'):
             os.mkdir('IV_Plots')
-        f.write_html(f'IV_Plots/{title}_Ratios_{datetime.today().replace(microsecond=0)}.html')
+        f.write_html(f'IV_Plots/{title}.html')
 
 # %%
 def plot_vrp_ratios(ranks_df: pd.Series or pd.DataFrame, vrp_ratio_df: pd.DataFrame or pd.Series, vrp_df: pd.DataFrame or pd.Series, n:int=100,
@@ -676,7 +745,7 @@ def plot_vrp_ratios(ranks_df: pd.Series or pd.DataFrame, vrp_ratio_df: pd.DataFr
     if write_to_file:
         if not os.path.exists('IV_Plots'):
             os.mkdir('IV_Plots')
-        f.write_html(f'IV_Plots/{title}_Ratios_{datetime.today().replace(microsecond=0)}.html')
+        f.write_html(f'IV_Plots/{title}.html')
 
 # %%
 def scrape_yahoo_screener(url: str):
